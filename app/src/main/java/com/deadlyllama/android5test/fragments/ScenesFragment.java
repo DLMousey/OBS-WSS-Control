@@ -1,36 +1,41 @@
 package com.deadlyllama.android5test.fragments;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
-
-import androidx.fragment.app.Fragment;
-
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ProgressBar;
+
+import androidx.fragment.app.Fragment;
 
 import com.deadlyllama.android5test.R;
 import com.deadlyllama.android5test.models.ObsScene;
 import com.deadlyllama.android5test.models.ObsSceneList;
 import com.deadlyllama.android5test.service.WebsocketService;
 import com.deadlyllama.android5test.websocket.requests.GetSceneList;
-import com.google.gson.Gson;
-
-import java.util.ArrayList;
+import com.deadlyllama.android5test.websocket.requests.SetCurrentScene;
+import com.google.gson.JsonObject;
 
 import okhttp3.WebSocket;
 
 public class ScenesFragment extends Fragment {
 
     private static final String TAG = "ScenesFragment";
-    private static WebSocket Websocket;
+    private WebSocket websocket;
+    private ObsScene currentScene;
+    public ObsSceneList sceneList;
+    public LinearLayout linearLayout;
+    public ProgressBar progressBar;
+
     private OnFragmentInteractionListener mListener;
-    private ObsSceneList sceneList;
 
     public ScenesFragment() {}
 
@@ -51,25 +56,38 @@ public class ScenesFragment extends Fragment {
             Handler handler = new Handler(Looper.getMainLooper()) {
                 @Override
                 public void handleMessage(Message inputMessage) {
-                    Log.d(TAG, "handleMessage: handle message fired - scenes fragment" + inputMessage.toString());
-
                     if (inputMessage.what == 0) {
-                        String response = (String) inputMessage.obj;
-                        Gson gson = new Gson();
+                        JsonObject data = (JsonObject) inputMessage.obj;
 
-                        sceneList = gson.fromJson(response, ObsSceneList.class);
+                        if (data.has("message-id")) {
+                            if (data.get("message-id").getAsString().equals("GetSceneList")) {
+                                sceneList = ObsSceneList.fromJsonObject((JsonObject) (inputMessage.obj));
 
-                        Log.d(TAG, "handleMessage: Done serialising!");
+                                progressBar.setVisibility(View.INVISIBLE);
+
+                                for (ObsScene scene : sceneList.scenes) {
+                                    Button button = new Button(getContext());
+                                    button.setText(scene.name);
+                                    button.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+                                    button.setPadding(50, 35, 50, 35);
+                                    linearLayout.addView(button);
+
+                                    attachClickListener(button, scene);
+                                }
+                            }
+                        }
                     }
                 }
             };
 
-            WebsocketService websocketService = WebsocketService.getInstance();
-            websocketService.getListener().setHandler(handler);
-            Websocket = websocketService.getWebsocket();
+            if (sceneList == null) {
+                WebsocketService websocketService = WebsocketService.getInstance();
+                websocketService.getListener().setHandler(handler);
+                websocket = websocketService.getWebsocket();
 
-            GetSceneList request = new GetSceneList();
-            Websocket.send(request.serialise());
+                GetSceneList request = new GetSceneList();
+                websocket.send(request.serialise());
+            }
         }
     }
 
@@ -77,6 +95,8 @@ public class ScenesFragment extends Fragment {
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_scenes, container, false);
+        linearLayout = view.findViewById(R.id.sceneFragmentLinearLayout);
+        progressBar = view.findViewById(R.id.progress_sceneList);
         return view;
     }
 
@@ -95,6 +115,25 @@ public class ScenesFragment extends Fragment {
     public void onDetach() {
         super.onDetach();
         mListener = null;
+    }
+
+    public void attachClickListener(final Button button, final ObsScene scene) {
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                for (int i = 1; i <= linearLayout.getChildCount(); i++) {
+                    if (linearLayout.getChildAt(i) instanceof Button) {
+                        Button button = (Button) linearLayout.getChildAt(i);
+                        button.setTextColor(Color.DKGRAY);
+                    }
+                }
+
+                currentScene = scene;
+                button.setTextColor(Color.BLUE);
+                SetCurrentScene setCommand = new SetCurrentScene(scene.name);
+                websocket.send(setCommand.serialise());
+            }
+        });
     }
 
     /**
